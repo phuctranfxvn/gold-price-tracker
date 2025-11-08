@@ -11,7 +11,7 @@ import argparse
 
 
 DB_PATH = 'gold_prices.db'
-FETCH_INTERVAL_SECONDS = 2 * 60 * 60  # every 2 hours
+FETCH_INTERVAL_SECONDS = 30 * 60  # every 30 minutes
 SJC_URL = "https://sjc.com.vn/GoldPrice/Services/PriceService.ashx"
 TARGET_BRANCH = "Hồ Chí Minh"
 
