@@ -148,6 +148,7 @@
                     plugins: {
                         legend: { display: true, labels: { color: '#E6EEF8' } },
                         tooltip: {
+                            interaction: { mode: 'nearest', intersect: false },
                             callbacks: {
                                 label: function (ctx) {
                                     const v = ctx.raw;
