@@ -317,14 +317,14 @@ if __name__ == "__main__":
                 insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
                 app.logger.info("Inserted initial latest price")
 
-    # Start scheduler
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(job_fetch_and_store, 'interval', seconds=FETCH_INTERVAL_SECONDS, next_run_time=None)
-    scheduler.start()
-    app.logger.info("Scheduler started (interval %s seconds)", FETCH_INTERVAL_SECONDS)
+    # # Start scheduler
+    # scheduler = BackgroundScheduler()
+    # scheduler.add_job(job_fetch_and_store, 'interval', seconds=FETCH_INTERVAL_SECONDS, next_run_time=None)
+    # scheduler.start()
+    # app.logger.info("Scheduler started (interval %s seconds)", FETCH_INTERVAL_SECONDS)
 
-    # Optional: run an immediate fetch in background (non-blocking)
-    threading.Thread(target=job_fetch_and_store, daemon=True).start()
+    # # Optional: run an immediate fetch in background (non-blocking)
+    # threading.Thread(target=job_fetch_and_store, daemon=True).start()
 
     # Run Flask app
     port = args.port
