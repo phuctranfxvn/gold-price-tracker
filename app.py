@@ -7,6 +7,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import logging
+import argparse
+
 
 DB_PATH = 'gold_prices.db'
 FETCH_INTERVAL_SECONDS = 2 * 60 * 60  # every 2 hours
@@ -251,21 +253,79 @@ def index():
     return render_template('index.html')
 
 
-# -------------------- App startup --------------------
-if __name__ == '__main__':
+def backfill_history(days: int) -> int:
+    """
+    Backfill prices for the last `days` days (including today).
+    Returns number of inserted records.
+    Uses existing functions: fetch_price_for_date(date_obj) and insert_price(ts,buy,sell).
+    """
+    inserted = 0
+    for d in range(days):
+        date_obj = datetime.now() - timedelta(days=d)
+        try:
+            res = fetch_price_for_date(date_obj)
+        except Exception as e:
+            app.logger.warning("Error fetching for date %s: %s", date_obj.strftime('%Y-%m-%d'), e)
+            res = None
+        if res:
+            ts, buy, sell = res
+            # check duplicate by timestamp (we use the midday timestamp used by fetch_price_for_date)
+            try:
+                db = sqlite3.connect(DB_PATH)
+                c = db.cursor()
+                c.execute('SELECT COUNT(1) FROM prices WHERE timestamp = ?', (ts,))
+                exists = c.fetchone()[0]
+                db.close()
+            except Exception as e:
+                app.logger.warning("DB check error: %s", e)
+                exists = 0
+            if not exists:
+                try:
+                    insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
+                    inserted += 1
+                    app.logger.info("Backfilled %s -> inserted", date_obj.strftime('%Y-%m-%d'))
+                except Exception as e:
+                    app.logger.warning("Insert error for %s: %s", date_obj.strftime('%Y-%m-%d'), e)
+    return inserted
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Gold price service")
+    parser.add_argument('--fetch-init', type=int, default=0,
+                        help='If >0, backfill this many days on startup (e.g. --fetch-init 30)')
+    parser.add_argument('--port', type=int, default=int(os.getenv('PORT', 3000)),
+                        help='Port to run the Flask app (default from PORT env or 3000)')
+    args = parser.parse_args()
+
+    # Initialize DB + migration
     init_db()
 
-    if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0:
-        first = fetch_latest_price()
-        if first:
-            ts, buy, sell = first
-            insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
+    # If fetch-init requested, run backfill BEFORE starting the webserver/scheduler
+    if args.fetch_init and args.fetch_init > 0:
+        app.logger.info("Starting initial backfill for %d days...", args.fetch_init)
+        inserted = backfill_history(args.fetch_init)
+        app.logger.info("Initial backfill completed: %d inserted", inserted)
+    else:
+        # ensure at least one data point exists (optional; keeps behavior of original app)
+        try:
+            db_exists = os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 0
+        except Exception:
+            db_exists = False
+        if not db_exists:
+            first = fetch_latest_price()
+            if first:
+                ts, buy, sell = first
+                insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
+                app.logger.info("Inserted initial latest price")
 
+    # Start scheduler
     scheduler = BackgroundScheduler()
     scheduler.add_job(job_fetch_and_store, 'interval', seconds=FETCH_INTERVAL_SECONDS, next_run_time=None)
     scheduler.start()
+    app.logger.info("Scheduler started (interval %s seconds)", FETCH_INTERVAL_SECONDS)
 
+    # Optional: run an immediate fetch in background (non-blocking)
     threading.Thread(target=job_fetch_and_store, daemon=True).start()
 
-    port = int(os.getenv('PORT', 3000))
-    app.run(host='0.0.0.0', port=port)
+    # Run Flask app
+    port = args.port
+    app.run(host='0.0.0.0', port=port, debug=False)

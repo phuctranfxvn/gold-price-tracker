@@ -2,7 +2,8 @@
     --bg: #0f172a;
     --card: #0b1220;
     --accent: #f59e0b;
-    --muted: rgba(255, 255, 255, 0.65)
+    --muted: rgba(255, 255, 255, 0.65);
+    --glass: rgba(255, 255, 255, 0.03);
 }
 
 * {
@@ -10,53 +11,59 @@
     font-family: Inter, system-ui, Segoe UI, Roboto, 'Helvetica Neue', Arial
 }
 
+html,
 body {
+    height: 100%;
     margin: 0;
     background: linear-gradient(135deg, #07102a 0%, #071a2a 60%);
     color: #fff;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px
+    overflow-x: hidden
 }
 
 .wrap {
     width: 100%;
-    max-width: 1200px
+    max-width: 1150px;
+    margin: 18px auto;
+    padding: 16px
 }
 
+/* Header */
 .header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 18px
+    gap: 12px;
+    padding: 14px
+}
+
+.header.card {
+    background: linear-gradient(180deg, var(--glass), rgba(255, 255, 255, 0.01));
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(2, 6, 23, 0.6)
 }
 
 .brand {
     display: flex;
     align-items: center;
-    gap: 14px
+    gap: 12px
 }
 
 .logo {
-    width: 56px;
-    height: 56px;
-    border-radius: 12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
     background: linear-gradient(135deg, #FFD700, #FF8C00);
     display: flex;
     align-items: center;
     justify-content: center;
     color: #111;
     font-weight: 800;
-    font-size: 20px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5)
+    font-size: 20px
 }
 
 h1 {
     margin: 0;
-    font-size: 20px;
-    letter-spacing: -0.2px
+    font-size: 18px
 }
 
 p.lead {
@@ -65,37 +72,33 @@ p.lead {
     font-size: 13px
 }
 
-.card {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
-    border-radius: 16px;
-    padding: 18px;
-    box-shadow: 0 10px 30px rgba(2, 6, 23, 0.6)
+/* top controls container */
+.top-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px
 }
 
-/* ensure fixed canvas height to avoid resize loops */
-.card canvas#priceChart {
-  width: 100% !important;
-  height: 380px !important;
-  display: block;
+.mode-controls {
+    display: flex;
+    gap: 8px
 }
-/* .card { min-height: 380px; }
-html, body { height: 100%; } */
 
 .controls {
     display: flex;
-    gap: 8px;
     align-items: center;
-    flex-wrap: wrap
+    gap: 8px
 }
 
+/* buttons */
 .btn {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.04);
     padding: 8px 12px;
-    border-radius: 10px;
+    border-radius: 8px;
     color: #fff;
-    font-weight: 600;
-    cursor: pointer
+    cursor: pointer;
+    font-weight: 600
 }
 
 .btn:active {
@@ -103,104 +106,184 @@ html, body { height: 100%; } */
 }
 
 .btn.active {
-    background: linear-gradient(90deg, #f59e0b, #f97316);
+    background: linear-gradient(90deg, var(--accent), #f97316);
     color: #111
 }
 
+/* Layout */
 .grid {
     display: grid;
-    grid-template-columns: 1fr 360px;
-    gap: 18px
+    grid-template-columns: 1fr 320px;
+    gap: 18px;
+    margin-top: 18px;
+    align-items: start
+}
+
+.card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(2, 6, 23, 0.6)
+}
+
+.chart-card {
+    min-height: 380px;
+    overflow: hidden;
+    position: relative
 }
 
 .stat {
     display: flex;
     flex-direction: column;
-    gap: 10px
+    gap: 12px
 }
 
-.big {
-    font-size: 22px;
+/* Chart canvas fix - fixed height and max width */
+.chart-card canvas#priceChart {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 360px !important;
+    display: block
+}
+
+/* current prices vertical */
+.current-prices.vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 12px
+}
+
+.price-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02)
+}
+
+.price-value {
+    font-size: 28px;
     font-weight: 800;
     line-height: 1;
-    word-break: break-word;
-    white-space: normal
-}
-
-.muted {
-    color: var(--muted);
-    font-size: 13px
-}
-
-.small-card {
-    padding: 14px;
-    border-radius: 12px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01))
-}
-
-.current-prices {
-    display: flex;
-    gap: 18px;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap
-}
-
-.current-prices>div {
-    flex: 1 1 120px;
-    min-width: 120px;
-    max-width: 220px;
-    overflow: hidden
-}
-
-.current-prices .big {
-    font-size: 20px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis
 }
 
-.mode-controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-left: 8px
+.small-text {
+    font-size: 12px;
+    color: var(--muted)
 }
 
-.chart-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 320px;
-    color: rgba(255, 255, 255, 0.25);
-    font-size: 16px
+/* small card */
+.small-card {
+    padding: 12px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01))
 }
 
-footer {
+/* footer */
+.footer-card {
     margin-top: 18px;
+    text-align: center;
     color: var(--muted);
     font-size: 13px;
-    text-align: center
+    padding: 12px
 }
 
-@media (max-width:900px) {
-    .grid {
-        grid-template-columns: 1fr
+/* utilities */
+.muted {
+    color: var(--muted);
+    font-size: 13px
+}
+
+.big {
+    font-size: 22px;
+    font-weight: 800
+}
+
+/* responsive: mobile adjustments */
+@media (max-width: 900px) {
+    .wrap {
+        padding: 12px
     }
 
     .header {
         flex-direction: column;
         align-items: flex-start;
-        gap: 10px
+        gap: 12px
     }
 
-    .current-prices {
+    .top-controls {
+        width: 100%;
+        display: flex;
         flex-direction: column;
-        align-items: flex-start
+        gap: 8px
     }
 
-    .current-prices>div {
-        max-width: none
+    .controls {
+        justify-content: flex-start;
+        flex-wrap: wrap
+    }
+
+    .grid {
+        grid-template-columns: 1fr;
+        gap: 12px
+    }
+
+    .chart-card {
+        min-height: 280px
+    }
+
+    .chart-card canvas#priceChart {
+        height: 260px !important
+    }
+
+    .price-value {
+        font-size: 22px
+    }
+
+    .logo {
+        width: 44px;
+        height: 44px
+    }
+
+    h1 {
+        font-size: 16px
+    }
+
+    .mode-controls button {
+        padding: 8px 10px;
+        font-size: 14px
+    }
+
+    .small-hide {
+        display: none
+    }
+
+    #last-updated-mobile {
+        display: block
     }
 }
 
+/* extra small screens */
+@media (max-width:420px) {
+    .chart-card canvas#priceChart {
+        height: 220px !important
+    }
+
+    .price-value {
+        font-size: 20px
+    }
+
+    .btn {
+        padding: 7px 8px;
+        font-size: 13px
+    }
+
+    .logo {
+        width: 40px;
+        height: 40px
+    }
+}
