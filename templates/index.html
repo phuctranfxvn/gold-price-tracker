@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Giá vàng SJC — Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="wrap">
+        <div class="header">
+            <div class="brand">
+                <div class="logo">V</div>
+                <div>
+                    <h1>Giá vàng SJC — Dashboard</h1>
+                    <p class="lead">Chi nhánh: Hồ Chí Minh · Cập nhật tự động mỗi 2 giờ</p>
+                </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px">
+                <div class="mode-controls" role="tablist" aria-label="Chế độ hiển thị">
+                    <button class="btn" id="modeTodayBtn">Hôm nay</button>
+                    <button class="btn active" id="mode7Btn">7 ngày</button>
+                    <button class="btn" id="mode30Btn">1 tháng</button>
+                </div>
+                <div class="controls">
+                    <div id="last-updated" class="muted">—</div>
+                    <button class="btn" id="refreshBtn">Tải lại</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card" style="position:relative;min-height:380px;">
+                <canvas id="priceChart" height="380"></canvas>
+            </div>
+
+            <div class="stat">
+
+                <div class="small-card card">
+                    <div class="current-prices vertical">
+                        <div class="price-block">
+                            <div class="muted">Mua (Buy)</div>
+                            <div id="currentBuy" class="big price-value">—</div>
+                            <div class="muted">VND</div>
+                        </div>
+                        <div class="price-block">
+                            <div class="muted">Bán (Sell)</div>
+                            <div id="currentSell" class="big price-value">—</div>
+                            <div class="muted">VND</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="small-card card">
+                    <div class="muted">Cài đặt</div>
+                    <div style="margin-top:8px">Lịch lấy: <strong>2 giờ</strong></div>
+                    <div style="margin-top:6px">Số ngày hiển thị (7/30): <select id="limitSelect">
+                            <option value="7">7</option>
+                            <option value="14">14</option>
+                            <option value="30" selected>30</option>
+                            <option value="90">90</option>
+                        </select></div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="card">Phát triển bởi Felix - Dữ liệu lấy từ SJC - Hồ Chí Minh</footer>
+    </div>
+
+    <script>window.API = { PRICES: '/api/prices', FETCH_HISTORY: '/api/fetch-history' };</script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+
+</html>
