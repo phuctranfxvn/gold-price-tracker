@@ -161,7 +161,13 @@
                     scales: {
                         x: {
                             display: true,
-                            ticks: { color: '#CFE6FF', maxRotation: 45, autoSkip: true, maxTicksLimit: 12 },
+                            ticks: {
+                                color: '#CFE6FF',
+                                source: 'data',
+                                autoSkip: false,
+                                maxRotation: 45,
+                                minRotation: 45
+                            },
                             grid: { color: 'rgba(255,255,255,0.03)' }
                         },
                         y: {
