@@ -285,17 +285,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gold price service")
     parser.add_argument('--port', type=int, default=int(os.getenv('PORT', 3000)),
                         help='Port to run the Flask app (default from PORT env or 3000)')
-    parser.add_argument('--backfill', type=int, default=15,
-                        help='Days to backfill on startup using Mi Hong history API (default: 15)')
+    parser.add_argument('--backfill', type=int, default=0,
+                        help='Days to backfill on startup using Mi Hong history API (default: 0)')
     args = parser.parse_args()
 
     # Initialize DB
     init_db()
 
-    # Backfill history on startup
-    app.logger.info("Backfilling last %d days from Mi Hồng history API...", args.backfill)
-    inserted = backfill_from_history(args.backfill)
-    app.logger.info("Backfill complete: %d records inserted", inserted)
+    # Backfill history on startup if explicitly requested
+    if args.backfill > 0:
+        app.logger.info("Backfilling last %d days from Mi Hồng history API...", args.backfill)
+        inserted = backfill_from_history(args.backfill)
+        app.logger.info("Backfill complete: %d records inserted", inserted)
 
     # Fetch current price immediately
     app.logger.info("Fetching current prices...")
