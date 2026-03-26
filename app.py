@@ -312,14 +312,10 @@ if __name__ == "__main__":
         app.logger.info("Intraday backfill complete: %d records inserted", inserted)
 
     # Fetch current price immediately
-    app.logger.info("Fetching current prices...")
-    job_fetch_and_store()
+    # (Removed to isolate scheduling to scheduler_runner.py)
 
     # Start hourly scheduler
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(job_fetch_and_store, 'interval', seconds=FETCH_INTERVAL_SECONDS)
-    scheduler.start()
-    app.logger.info("Scheduler started (every %d seconds)", FETCH_INTERVAL_SECONDS)
+    # (Removed to isolate scheduling to scheduler_runner.py)
 
     # Run Flask app
     app.run(host='0.0.0.0', port=args.port, debug=False)
