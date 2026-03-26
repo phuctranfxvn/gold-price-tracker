@@ -173,33 +173,57 @@ def job_fetch_and_store():
 
 def backfill_from_history(days: int = 15) -> int:
     """
-    Backfill DB from Mi Hồng history API for the last `days` days.
-    Only inserts if no record already exists for that day+type.
+    Backfill DB using Mi H\u1ed3ng history APIs:
+    - ?last=<days>d  : one record per day for the last N days
+    - ?last=24h      : intraday ticks for the last 24h (seeds today's data)
+    Only inserts records that don't already exist (by exact timestamp + gold_type).
     Returns total number of records inserted.
     """
     inserted = 0
     for gold_type in SUPPORTED_TYPES:
-        history = fetch_mihong_history(gold_type, f"{days}d")
-        for record in history:
+        # --- daily history (last N days) ---
+        for record in fetch_mihong_history(gold_type, f"{days}d"):
             ok = upsert_daily_price(record['timestamp'], gold_type, record['buy'], record['sell'])
             if ok:
                 inserted += 1
-                app.logger.info('Backfilled %s @ %s', gold_type, datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d'))
+                app.logger.info('Backfilled daily %s @ %s', gold_type,
+                                datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d'))
+
+        # --- intraday history (last 24h, seeds today's ticks) ---
+        today_vn = datetime.now(VN_TZ).date()
+        for record in fetch_mihong_history(gold_type, "24h"):
+            # only insert records that belong to today (UTC+7)
+            if datetime.fromtimestamp(record['timestamp'], tz=VN_TZ).date() != today_vn:
+                continue
+            db = sqlite3.connect(DB_PATH)
+            c = db.cursor()
+            c.execute('SELECT COUNT(1) FROM prices WHERE timestamp = ? AND gold_type = ?',
+                      (record['timestamp'], gold_type))
+            exists = c.fetchone()[0]
+            db.close()
+            if not exists:
+                insert_price(record['timestamp'], gold_type,
+                             record['buy'] or 0.0, record['sell'] or 0.0)
+                inserted += 1
+                app.logger.info('Backfilled intraday %s @ %s', gold_type,
+                                datetime.fromtimestamp(record['timestamp'], tz=VN_TZ).strftime('%H:%M'))
     return inserted
 
 
 # -------------------- DB queries --------------------
 def get_today_records(gold_type='SJC'):
-    """
-    Fetch intraday prices for today from Mi H\u1ed3ng ?last=24h API.
-    Filters to only records whose date (UTC+7) matches today.
-    """
-    today_vn = datetime.now(VN_TZ).date()
-    records = fetch_mihong_history(gold_type, "24h")
-    return [
-        r for r in records
-        if datetime.fromtimestamp(r["timestamp"], tz=VN_TZ).date() == today_vn
-    ]
+    """Read intraday records for today from DB."""
+    db = get_db_conn()
+    c = db.cursor()
+    c.execute("""
+        SELECT timestamp, buy, sell FROM prices
+        WHERE gold_type = ?
+          AND date(timestamp + ?, 'unixepoch') = date(strftime('%s','now') + ?, 'unixepoch')
+        ORDER BY timestamp ASC
+    """, (gold_type, VN_OFFSET_SECS, VN_OFFSET_SECS))
+    rows = c.fetchall()
+    db.close()
+    return [{'timestamp': r['timestamp'], 'buy': r['buy'], 'sell': r['sell']} for r in rows]
 
 
 def get_daily_latest(days, gold_type='SJC'):
