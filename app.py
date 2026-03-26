@@ -171,26 +171,14 @@ def job_fetch_and_store():
         app.logger.info('Stored %s: buy=%s sell=%s at %s', code, buy, sell, datetime.fromtimestamp(ts))
 
 
-def backfill_from_history(days: int = 15) -> int:
+def backfill_intraday_today() -> int:
     """
-    Backfill DB using Mi H\u1ed3ng history APIs:
-    - ?last=<days>d  : one record per day for the last N days
-    - ?last=24h      : intraday ticks for the last 24h (seeds today's data)
-    Only inserts records that don't already exist (by exact timestamp + gold_type).
-    Returns total number of records inserted.
+    Backfill DB using Mi H\u1ed3ng ?last=24h API to seed today's ticks.
+    Returns number of records inserted.
     """
     inserted = 0
+    today_vn = datetime.now(VN_TZ).date()
     for gold_type in SUPPORTED_TYPES:
-        # --- daily history (last N days) ---
-        for record in fetch_mihong_history(gold_type, f"{days}d"):
-            ok = upsert_daily_price(record['timestamp'], gold_type, record['buy'], record['sell'])
-            if ok:
-                inserted += 1
-                app.logger.info('Backfilled daily %s @ %s', gold_type,
-                                datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d'))
-
-        # --- intraday history (last 24h, seeds today's ticks) ---
-        today_vn = datetime.now(VN_TZ).date()
         for record in fetch_mihong_history(gold_type, "24h"):
             # only insert records that belong to today (UTC+7)
             if datetime.fromtimestamp(record['timestamp'], tz=VN_TZ).date() != today_vn:
@@ -207,6 +195,25 @@ def backfill_from_history(days: int = 15) -> int:
                 inserted += 1
                 app.logger.info('Backfilled intraday %s @ %s', gold_type,
                                 datetime.fromtimestamp(record['timestamp'], tz=VN_TZ).strftime('%H:%M'))
+    return inserted
+
+
+def backfill_from_history(days: int = 15) -> int:
+    """
+    Backfill DB using Mi H\u1ed3ng history APIs:
+    - ?last=<days>d: daily records
+    - ?last=24h: intraday for today
+    """
+    inserted = 0
+    for gold_type in SUPPORTED_TYPES:
+        for record in fetch_mihong_history(gold_type, f"{days}d"):
+            ok = upsert_daily_price(record['timestamp'], gold_type, record['buy'], record['sell'])
+            if ok:
+                inserted += 1
+                app.logger.info('Backfilled daily %s @ %s', gold_type,
+                                datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d'))
+    # Also do today's intraday
+    inserted += backfill_intraday_today()
     return inserted
 
 
@@ -285,18 +292,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gold price service")
     parser.add_argument('--port', type=int, default=int(os.getenv('PORT', 3000)),
                         help='Port to run the Flask app (default from PORT env or 3000)')
-    parser.add_argument('--backfill', type=int, default=0,
-                        help='Days to backfill on startup using Mi Hong history API (default: 0)')
+    parser.add_argument('--backfill-15d', action='store_true',
+                        help='Backfill the last 15 days of historical data from Mi Hong API')
+    parser.add_argument('--backfill-24h', action='store_true',
+                        help='Backfill only today intraday ticks (via ?last=24h)')
     args = parser.parse_args()
 
     # Initialize DB
     init_db()
 
     # Backfill history on startup if explicitly requested
-    if args.backfill > 0:
-        app.logger.info("Backfilling last %d days from Mi Hồng history API...", args.backfill)
-        inserted = backfill_from_history(args.backfill)
-        app.logger.info("Backfill complete: %d records inserted", inserted)
+    if args.backfill_15d:
+        app.logger.info("Backfilling last 15 days from Mi Hồng history API...")
+        inserted = backfill_from_history(15)
+        app.logger.info("15-day backfill complete: %d records inserted", inserted)
+    elif args.backfill_24h:
+        app.logger.info("Backfilling only today's intraday data...")
+        inserted = backfill_intraday_today()
+        app.logger.info("Intraday backfill complete: %d records inserted", inserted)
 
     # Fetch current price immediately
     app.logger.info("Fetching current prices...")
