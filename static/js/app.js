@@ -1,15 +1,16 @@
-// static/js/app.js (fixed limit handling)
+// static/js/app.js
 (() => {
     document.addEventListener('DOMContentLoaded', () => {
         const btnToday = document.getElementById('modeTodayBtn');
         const btn7 = document.getElementById('mode7Btn');
         const btn30 = document.getElementById('mode30Btn');
         const refreshBtn = document.getElementById('refreshBtn');
-        const fetch30Btn = document.getElementById('fetch30Btn') || document.getElementById('fetch7Btn'); // fallback
         const limitSelect = document.getElementById('limitSelect');
         const lastUpdatedEl = document.getElementById('last-updated');
         const currentBuyEl = document.getElementById('currentBuy');
         const currentSellEl = document.getElementById('currentSell');
+        const currentTypeBadge = document.getElementById('currentTypeBadge');
+        const typeBtns = document.querySelectorAll('.type-btn');
 
         if (!btnToday || !btn7 || !btn30 || !refreshBtn || !limitSelect) {
             console.warn('One or more UI elements not found — check IDs in HTML');
@@ -19,7 +20,19 @@
         let chart = null;
         let creatingChart = false;
         let currentMode = '7d';
+        let currentType = 'SJC';
         const CHART_CANVAS = document.getElementById('priceChart');
+
+        // ---- Type selector ----
+        typeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                typeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentType = btn.dataset.type;
+                if (currentTypeBadge) currentTypeBadge.textContent = currentType;
+                updateChart();
+            });
+        });
 
         function setActiveMode(mode) {
             currentMode = mode;
@@ -28,17 +41,13 @@
             else if (mode === '30d') btn30.classList.add('active');
             else btn7.classList.add('active');
 
-            // UX: when switching mode, set the limitSelect to the sensible default for that mode
-            // but **do not** override if user already changed it earlier (we check a data attribute)
             if (!limitSelect.dataset.userModified) {
                 if (mode === '7d') limitSelect.value = '7';
                 else if (mode === '30d') limitSelect.value = '30';
             }
-            // disable select in 'today' mode
             limitSelect.disabled = (mode === 'today');
         }
 
-        // mark when user intentionally changes select
         limitSelect.addEventListener('change', () => {
             limitSelect.dataset.userModified = '1';
         });
@@ -54,7 +63,7 @@
 
         async function fetchPrices(limit = 30) {
             const modeParam = currentMode;
-            const url = `${window.API.PRICES}?mode=${modeParam}&limit=${limit}`;
+            const url = `${window.API.PRICES}?mode=${modeParam}&limit=${limit}&type=${currentType}`;
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -87,7 +96,7 @@
                 if (!el) {
                     el = document.createElement('div');
                     el.className = 'chart-empty';
-                    el.textContent = 'Không có dữ liệu để hiển thị. Hãy nhấn "Lấy lịch sử" để nạp dữ liệu hoặc chờ scheduler.';
+                    el.textContent = 'Không có dữ liệu để hiển thị. Hãy nhấn "Tải lại" để nạp dữ liệu.';
                     parent.appendChild(el);
                 }
                 CHART_CANVAS.style.display = 'none';
@@ -190,20 +199,16 @@
             if (pending) return;
             pending = true;
             try {
-                // Determine limit depending on mode with sensible defaults
                 const userLimit = parseInt(limitSelect.value, 10);
                 let limit;
                 if (currentMode === 'today') {
-                    limit = 0; // backend ignores limit for today
+                    limit = 0;
                 } else if (!isNaN(userLimit) && userLimit > 0) {
-                    // user explicitly set a limit -> respect it for both 7d and 30d
                     limit = userLimit;
                 } else {
-                    // user did not set an explicit limit -> use mode defaults
                     limit = (currentMode === '30d') ? 30 : 7;
                 }
 
-                // ask backend
                 const data = await fetchPrices(limit);
                 if (!data || data.length === 0) {
                     destroyChartIfExists();
@@ -253,22 +258,6 @@
             limitSelect.dataset.userModified = '1';
             updateChart();
         });
-        if (fetch30Btn) {
-            fetch30Btn.addEventListener('click', async () => {
-                fetch30Btn.textContent = 'Đang lấy...';
-                fetch30Btn.disabled = true;
-                try {
-                    const resp = await fetch(`${window.API.FETCH_HISTORY}?days=30`, { method: 'POST' });
-                    const j = await resp.json();
-                    alert('Hoàn tất: ' + (j.inserted || 0) + ' bản ghi được thêm');
-                    await updateChart();
-                } catch (err) {
-                    alert('Lỗi khi lấy lịch sử: ' + err);
-                }
-                fetch30Btn.textContent = fetch30Btn.id === 'fetch7Btn' ? 'Lấy 7 ngày' : 'Lấy 30 ngày';
-                fetch30Btn.disabled = false;
-            });
-        }
 
         // initial
         setActiveMode('7d');

@@ -183,6 +183,40 @@ p.lead {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01))
 }
 
+/* gold type selector bar */
+.type-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 10px 14px;
+    align-items: center
+}
+
+.type-btn {
+    font-size: 14px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    transition: background 0.2s
+}
+
+.type-btn.active {
+    background: linear-gradient(90deg, #f59e0b, #f97316);
+    color: #111
+}
+
+/* type badge inside current price card */
+.type-badge {
+    display: inline-block;
+    background: linear-gradient(90deg, #f59e0b, #f97316);
+    color: #111;
+    font-weight: 800;
+    font-size: 13px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px
+}
+
 /* footer */
 .footer-card {
     margin-top: 18px;
@@ -190,6 +224,15 @@ p.lead {
     color: var(--muted);
     font-size: 13px;
     padding: 12px
+}
+
+.footer-card a {
+    color: var(--accent);
+    text-decoration: none
+}
+
+.footer-card a:hover {
+    text-decoration: underline
 }
 
 /* utilities */

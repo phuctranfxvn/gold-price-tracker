@@ -2,7 +2,10 @@
 from flask import Flask, jsonify, request, render_template
 from apscheduler.schedulers.background import BackgroundScheduler
 import sqlite3, os, time, threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+VN_TZ = timezone(timedelta(hours=7))  # UTC+7, Mi Hồng returns dates in this tz
+VN_OFFSET_SECS = 7 * 3600  # 25200 – used in SQLite date() to group by VN date
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -11,9 +14,9 @@ import argparse
 
 
 DB_PATH = 'gold_prices.db'
-FETCH_INTERVAL_SECONDS = 30 * 60  # every 30 minutes
-SJC_URL = "https://sjc.com.vn/GoldPrice/Services/PriceService.ashx"
-TARGET_BRANCH = "Hồ Chí Minh"
+FETCH_INTERVAL_SECONDS = 60 * 60  # every 1 hour
+MIHONG_BASE = "https://api.mihong.vn/v1/gold-prices"
+SUPPORTED_TYPES = ("SJC", "999")
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 logging.basicConfig(level=logging.INFO)
@@ -23,61 +26,27 @@ logging.basicConfig(level=logging.INFO)
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='prices'")
-    if not c.fetchone():
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS prices (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp INTEGER NOT NULL,
-                buy REAL,
-                sell REAL
-            )
-        ''')
-        conn.commit()
-        conn.close()
-        app.logger.info('Created new prices table')
-        return
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS prices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            gold_type TEXT NOT NULL DEFAULT 'SJC',
+            buy REAL,
+            sell REAL
+        )
+    ''')
+    conn.commit()
 
+    # Migration: add gold_type column if missing
     c.execute("PRAGMA table_info(prices)")
     cols = [r[1] for r in c.fetchall()]
-
-    if 'buy' in cols and 'sell' in cols:
-        conn.close()
-        return
-
-    if 'price' in cols:
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS prices_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp INTEGER NOT NULL,
-                buy REAL,
-                sell REAL
-            )
-        ''')
+    if 'gold_type' not in cols:
+        c.execute("ALTER TABLE prices ADD COLUMN gold_type TEXT NOT NULL DEFAULT 'SJC'")
         conn.commit()
-        try:
-            c.execute("INSERT INTO prices_new (id, timestamp, buy, sell) SELECT id, timestamp, NULL, price FROM prices")
-        except sqlite3.OperationalError:
-            rows = c.execute("SELECT id, timestamp, price FROM prices").fetchall()
-            for r in rows:
-                _id, ts, price = r
-                c.execute("INSERT INTO prices_new (id, timestamp, buy, sell) VALUES (?, ?, ?, ?)",
-                          (_id, ts, None, price))
-        conn.commit()
-        c.execute("DROP TABLE prices")
-        c.execute("ALTER TABLE prices_new RENAME TO prices")
-        conn.commit()
-        conn.close()
-        app.logger.info('Migration complete.')
-        return
+        app.logger.info('Migration: added gold_type column')
 
-    if 'buy' not in cols:
-        c.execute("ALTER TABLE prices ADD COLUMN buy REAL")
-    if 'sell' not in cols:
-        c.execute("ALTER TABLE prices ADD COLUMN sell REAL")
-    conn.commit()
     conn.close()
-    app.logger.info('Added missing columns')
+    app.logger.info('DB initialized')
 
 
 def get_db_conn():
@@ -86,165 +55,200 @@ def get_db_conn():
     return conn
 
 
-def insert_price(ts_unix, buy, sell):
+def insert_price(ts_unix, gold_type, buy, sell):
     db = sqlite3.connect(DB_PATH)
     c = db.cursor()
-    c.execute('INSERT INTO prices(timestamp, buy, sell) VALUES(?, ?, ?)',
-              (int(ts_unix), float(buy) if buy is not None else None, float(sell) if sell is not None else None))
+    c.execute('INSERT INTO prices(timestamp, gold_type, buy, sell) VALUES(?, ?, ?, ?)',
+              (int(ts_unix), gold_type,
+               float(buy) if buy is not None else None,
+               float(sell) if sell is not None else None))
     db.commit()
     db.close()
 
 
-# -------------------- SJC API helpers --------------------
-def call_sjc_for_date(date_str):
-    payload = {"method": "GetSJCGoldPriceByDate", "toDate": date_str}
-    headers = {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    }
+def upsert_daily_price(ts_unix, gold_type, buy, sell):
+    """
+    For a given day (using midday timestamp), insert only if no record exists for that day+type.
+    Used during backfill to avoid duplicates.
+    """
+    db = sqlite3.connect(DB_PATH)
+    c = db.cursor()
+    c.execute(
+        "SELECT COUNT(1) FROM prices WHERE gold_type = ? AND date(timestamp + ?, 'unixepoch') = date(? + ?, 'unixepoch')",
+        (gold_type, VN_OFFSET_SECS, int(ts_unix), VN_OFFSET_SECS)
+    )
+    if c.fetchone()[0] == 0:
+        c.execute('INSERT INTO prices(timestamp, gold_type, buy, sell) VALUES(?, ?, ?, ?)',
+                  (int(ts_unix), gold_type,
+                   float(buy) if buy is not None else None,
+                   float(sell) if sell is not None else None))
+        db.commit()
+        db.close()
+        return True
+    db.close()
+    return False
+
+
+# -------------------- Mi Hồng API helpers --------------------
+def _make_session():
     session = requests.Session()
     retries = Retry(total=4, backoff_factor=0.5,
                     status_forcelist=(429, 500, 502, 503, 504),
-                    allowed_methods=frozenset(["POST", "GET"]))
+                    allowed_methods=frozenset(["GET"]))
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
+    return session
+
+
+def fetch_mihong_current():
+    """Fetch all current gold prices from Mi Hồng (no date filter)."""
     try:
-        r = session.post(SJC_URL, data=payload, headers=headers, timeout=15, verify=True)
+        r = _make_session().get(MIHONG_BASE, params={"market": "domestic"}, timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        app.logger.warning('SJC API error for date %s: %s', date_str, e)
+        app.logger.warning('Mi Hồng current API error: %s', e)
         return None
 
 
-def extract_buy_sell_from_response(j):
+def fetch_mihong_history(gold_type: str, last: str):
+    """
+    Fetch price history for a specific gold type.
+    `last` can be e.g. '15d' (daily history) or '24h' (intraday).
+    Returns list of {timestamp, buy, sell} dicts sorted ASC.
+    """
     try:
-        if not j or not isinstance(j, dict) or not j.get('success'):
-            return None, None
-        for entry in j.get('data', []):
-            if entry.get('BranchName') == TARGET_BRANCH:
-                buy_val = entry.get('BuyValue')
-                sell_val = entry.get('SellValue')
-                if buy_val is None:
-                    b = entry.get('Buy')
-                    if isinstance(b, str) and b.strip() != '':
-                        buy_val = float(b.replace(',', ''))
-                if sell_val is None:
-                    s = entry.get('Sell')
-                    if isinstance(s, str) and s.strip() != '':
-                        sell_val = float(s.replace(',', ''))
-                return buy_val, sell_val
-        return None, None
+        r = _make_session().get(
+            MIHONG_BASE,
+            params={"market": "domestic", "goldCode": gold_type, "last": last},
+            timeout=15
+        )
+        r.raise_for_status()
+        data = r.json()
     except Exception as e:
-        app.logger.warning('Error extracting buy/sell: %s', e)
-        return None, None
+        app.logger.warning('Mi Hồng history API error (%s, %s): %s', gold_type, last, e)
+        return []
 
+    result = []
+    for entry in (data or []):
+        dt_str = entry.get("dateTime", "")
+        buy = entry.get("buyingPrice")
+        sell = entry.get("sellingPrice")
+        try:
+            # dateTime from Mi Hồng is UTC+7 — attach timezone before converting
+            dt = datetime.strptime(dt_str, "%d/%m/%Y %H:%M").replace(tzinfo=VN_TZ)
+            ts = int(dt.timestamp())
+        except Exception:
+            continue
+        result.append({
+            "timestamp": ts,
+            "buy": float(buy) if buy else None,
+            "sell": float(sell) if sell else None,
+        })
 
-def fetch_price_for_date(date_obj):
-    date_str = date_obj.strftime('%d/%m/%Y')
-    j = call_sjc_for_date(date_str)
-    if not j:
-        return None
-    buy, sell = extract_buy_sell_from_response(j)
-    if buy is None and sell is None:
-        return None
-    ts = int(time.mktime(date_obj.replace(hour=12, minute=0, second=0).timetuple()))
-    return ts, buy, sell
-
-
-def fetch_latest_price():
-    date_obj = datetime.now()
-    res = fetch_price_for_date(date_obj)
-    if not res:
-        return None
-    ts_day, buy, sell = res
-    return int(time.time()), buy, sell
-
-
-# -------------------- queries for modes --------------------
-def get_today_records():
-    db = get_db_conn()
-    c = db.cursor()
-    q = """
-    SELECT timestamp, buy, sell
-    FROM prices
-    WHERE date(timestamp, 'unixepoch', 'localtime') = date('now','localtime')
-    ORDER BY timestamp ASC
-    """
-    c.execute(q)
-    rows = c.fetchall()
-    db.close()
-    return [{'timestamp': r['timestamp'], 'buy': r['buy'], 'sell': r['sell']} for r in rows]
-
-
-def get_daily_latest(days):
-    db = get_db_conn()
-    c = db.cursor()
-    q = """
-    SELECT p.timestamp, p.buy, p.sell
-    FROM prices p
-    JOIN (
-      SELECT date(timestamp, 'unixepoch', 'localtime') as d, MAX(timestamp) as maxts
-      FROM prices
-      GROUP BY d
-    ) m ON p.timestamp = m.maxts
-    ORDER BY p.timestamp DESC
-    LIMIT ?
-    """
-    c.execute(q, (days,))
-    rows = c.fetchall()
-    db.close()
-    rows = list(reversed(rows))
-    return [{'timestamp': r['timestamp'], 'buy': r['buy'], 'sell': r['sell']} for r in rows]
+    result.sort(key=lambda x: x["timestamp"])
+    return result
 
 
 # -------------------- Scheduler job --------------------
 def job_fetch_and_store():
-    result = fetch_latest_price()
-    if result is None:
-        app.logger.info('Fetch returned no result; skipping insert')
+    """Fetch current prices every hour and store in DB."""
+    data = fetch_mihong_current()
+    if not data:
+        app.logger.info('Fetch returned no results; skipping insert')
         return
-    ts, buy, sell = result
-    insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
-    app.logger.info('Stored gold price: buy=%s sell=%s at %s', buy, sell, datetime.fromtimestamp(ts))
+    ts = int(time.time())
+    for entry in data:
+        code = entry.get("code", "").upper()
+        if code not in SUPPORTED_TYPES:
+            continue
+        buy = entry.get("buyingPrice")
+        sell = entry.get("sellingPrice")
+        insert_price(ts, code,
+                     float(buy) if buy else 0.0,
+                     float(sell) if sell else 0.0)
+        app.logger.info('Stored %s: buy=%s sell=%s at %s', code, buy, sell, datetime.fromtimestamp(ts))
+
+
+def backfill_from_history(days: int = 15) -> int:
+    """
+    Backfill DB from Mi Hồng history API for the last `days` days.
+    Only inserts if no record already exists for that day+type.
+    Returns total number of records inserted.
+    """
+    inserted = 0
+    for gold_type in SUPPORTED_TYPES:
+        history = fetch_mihong_history(gold_type, f"{days}d")
+        for record in history:
+            ok = upsert_daily_price(record['timestamp'], gold_type, record['buy'], record['sell'])
+            if ok:
+                inserted += 1
+                app.logger.info('Backfilled %s @ %s', gold_type, datetime.fromtimestamp(record['timestamp']).strftime('%Y-%m-%d'))
+    return inserted
+
+
+# -------------------- DB queries --------------------
+def get_today_records(gold_type='SJC'):
+    """
+    Fetch intraday prices for today from Mi H\u1ed3ng ?last=24h API.
+    Filters to only records whose date (UTC+7) matches today.
+    """
+    today_vn = datetime.now(VN_TZ).date()
+    records = fetch_mihong_history(gold_type, "24h")
+    return [
+        r for r in records
+        if datetime.fromtimestamp(r["timestamp"], tz=VN_TZ).date() == today_vn
+    ]
+
+
+def get_daily_latest(days, gold_type='SJC'):
+    """Return one (latest) record per day for the last `days` days."""
+    db = get_db_conn()
+    c = db.cursor()
+    c.execute("""
+        SELECT p.timestamp, p.buy, p.sell
+        FROM prices p
+        JOIN (
+          SELECT date(timestamp + ?, 'unixepoch') as d, MAX(timestamp) as maxts
+          FROM prices
+          WHERE gold_type = ?
+          GROUP BY d
+        ) m ON p.timestamp = m.maxts AND p.gold_type = ?
+        ORDER BY p.timestamp DESC
+        LIMIT ?
+    """, (VN_OFFSET_SECS, gold_type, gold_type, days))
+    rows = c.fetchall()
+    db.close()
+    return [{'timestamp': r['timestamp'], 'buy': r['buy'], 'sell': r['sell']} for r in reversed(rows)]
 
 
 # -------------------- Web endpoints --------------------
 @app.route('/api/prices')
 def api_prices():
-    mode = request.args.get('mode', '7d')  # 'today', '7d', '30d'
+    mode = request.args.get('mode', '7d')
+    gold_type = request.args.get('type', 'SJC').upper()
+    if gold_type not in SUPPORTED_TYPES:
+        gold_type = 'SJC'
+
     if mode == 'today':
-        data = get_today_records()
-    elif mode == '30d':
-        limit = request.args.get('limit', default=30, type=int)
-        data = get_daily_latest(limit)
+        data = get_today_records(gold_type)
     else:
-        limit = request.args.get('limit', default=7, type=int)
-        data = get_daily_latest(limit)
+        limit = request.args.get('limit', default=None, type=int)
+        if limit is None:
+            limit = 30 if mode == '30d' else 7
+        data = get_daily_latest(limit, gold_type)
+
     return jsonify({'status': 'ok', 'data': data, 'last_update': data[-1]['timestamp'] if data else None})
 
 
 @app.route('/api/fetch-history', methods=['POST'])
 def api_fetch_history():
     try:
-        days = int(request.args.get('days', 7))
-    except:
-        days = 7
-    inserted = 0
-    for d in range(days):
-        date_obj = datetime.now() - timedelta(days=d)
-        res = fetch_price_for_date(date_obj)
-        if res:
-            ts, buy, sell = res
-            db = sqlite3.connect(DB_PATH)
-            c = db.cursor()
-            c.execute('SELECT COUNT(1) FROM prices WHERE timestamp = ?', (ts,))
-            exists = c.fetchone()[0]
-            db.close()
-            if not exists:
-                insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
-                inserted += 1
+        days = int(request.args.get('days', 15))
+    except Exception:
+        days = 15
+    inserted = backfill_from_history(days)
     return jsonify({'status': 'ok', 'inserted': inserted})
 
 
@@ -253,79 +257,31 @@ def index():
     return render_template('index.html')
 
 
-def backfill_history(days: int) -> int:
-    """
-    Backfill prices for the last `days` days (including today).
-    Returns number of inserted records.
-    Uses existing functions: fetch_price_for_date(date_obj) and insert_price(ts,buy,sell).
-    """
-    inserted = 0
-    for d in range(days):
-        date_obj = datetime.now() - timedelta(days=d)
-        try:
-            res = fetch_price_for_date(date_obj)
-        except Exception as e:
-            app.logger.warning("Error fetching for date %s: %s", date_obj.strftime('%Y-%m-%d'), e)
-            res = None
-        if res:
-            ts, buy, sell = res
-            # check duplicate by timestamp (we use the midday timestamp used by fetch_price_for_date)
-            try:
-                db = sqlite3.connect(DB_PATH)
-                c = db.cursor()
-                c.execute('SELECT COUNT(1) FROM prices WHERE timestamp = ?', (ts,))
-                exists = c.fetchone()[0]
-                db.close()
-            except Exception as e:
-                app.logger.warning("DB check error: %s", e)
-                exists = 0
-            if not exists:
-                try:
-                    insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
-                    inserted += 1
-                    app.logger.info("Backfilled %s -> inserted", date_obj.strftime('%Y-%m-%d'))
-                except Exception as e:
-                    app.logger.warning("Insert error for %s: %s", date_obj.strftime('%Y-%m-%d'), e)
-    return inserted
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gold price service")
-    parser.add_argument('--fetch-init', type=int, default=0,
-                        help='If >0, backfill this many days on startup (e.g. --fetch-init 30)')
     parser.add_argument('--port', type=int, default=int(os.getenv('PORT', 3000)),
                         help='Port to run the Flask app (default from PORT env or 3000)')
+    parser.add_argument('--backfill', type=int, default=15,
+                        help='Days to backfill on startup using Mi Hong history API (default: 15)')
     args = parser.parse_args()
 
-    # Initialize DB + migration
+    # Initialize DB
     init_db()
 
-    # If fetch-init requested, run backfill BEFORE starting the webserver/scheduler
-    if args.fetch_init and args.fetch_init > 0:
-        app.logger.info("Starting initial backfill for %d days...", args.fetch_init)
-        inserted = backfill_history(args.fetch_init)
-        app.logger.info("Initial backfill completed: %d inserted", inserted)
-    else:
-        # ensure at least one data point exists (optional; keeps behavior of original app)
-        try:
-            db_exists = os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 0
-        except Exception:
-            db_exists = False
-        if not db_exists:
-            first = fetch_latest_price()
-            if first:
-                ts, buy, sell = first
-                insert_price(ts, buy if buy is not None else 0.0, sell if sell is not None else 0.0)
-                app.logger.info("Inserted initial latest price")
+    # Backfill history on startup
+    app.logger.info("Backfilling last %d days from Mi Hồng history API...", args.backfill)
+    inserted = backfill_from_history(args.backfill)
+    app.logger.info("Backfill complete: %d records inserted", inserted)
 
-    # # Start scheduler
-    # scheduler = BackgroundScheduler()
-    # scheduler.add_job(job_fetch_and_store, 'interval', seconds=FETCH_INTERVAL_SECONDS, next_run_time=None)
-    # scheduler.start()
-    # app.logger.info("Scheduler started (interval %s seconds)", FETCH_INTERVAL_SECONDS)
+    # Fetch current price immediately
+    app.logger.info("Fetching current prices...")
+    job_fetch_and_store()
 
-    # # Optional: run an immediate fetch in background (non-blocking)
-    # threading.Thread(target=job_fetch_and_store, daemon=True).start()
+    # Start hourly scheduler
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(job_fetch_and_store, 'interval', seconds=FETCH_INTERVAL_SECONDS)
+    scheduler.start()
+    app.logger.info("Scheduler started (every %d seconds)", FETCH_INTERVAL_SECONDS)
 
     # Run Flask app
-    port = args.port
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=args.port, debug=False)
