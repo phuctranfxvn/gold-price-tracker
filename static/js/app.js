@@ -9,7 +9,10 @@
         const lastUpdatedEl = document.getElementById('last-updated');
         const currentBuyEl = document.getElementById('currentBuy');
         const currentSellEl = document.getElementById('currentSell');
+        const currentBuyDiffEl = document.getElementById('currentBuyDiff');
+        const currentSellDiffEl = document.getElementById('currentSellDiff');
         const currentWorldGoldEl = document.getElementById('currentWorldGold');
+        const currentWorldGoldDiffEl = document.getElementById('currentWorldGoldDiff');
         const worldGoldDetailsEl = document.getElementById('worldGoldDetails');
         const currentTypeBadge = document.getElementById('currentTypeBadge');
         const typeBtns = document.querySelectorAll('.type-btn');
@@ -88,6 +91,14 @@
         function formatNumber(n) {
             if (n === null || n === undefined) return '—';
             return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+        }
+
+        function formatDiffStr(diff) {
+            if (!diff || diff === 0) return '';
+            const sign = diff > 0 ? '▲' : '▼';
+            // Default: Up is green, Down is red
+            const color = diff > 0 ? '#34d399' : '#f87171';
+            return `<span style="color: ${color}; font-weight: 500; font-size: 0.9em; margin-left: 4px;">${sign} ${formatNumber(Math.abs(diff))}</span>`;
         }
 
         function showEmptyMessage(show) {
@@ -243,7 +254,10 @@
                     showEmptyMessage(true);
                     if (currentBuyEl) currentBuyEl.textContent = '—';
                     if (currentSellEl) currentSellEl.textContent = '—';
+                    if (currentBuyDiffEl) currentBuyDiffEl.innerHTML = '';
+                    if (currentSellDiffEl) currentSellDiffEl.innerHTML = '';
                     if (currentWorldGoldEl) currentWorldGoldEl.textContent = '—';
+                    if (currentWorldGoldDiffEl) currentWorldGoldDiffEl.innerHTML = '';
                     if (worldGoldDetailsEl) worldGoldDetailsEl.innerHTML = '';
                     if (lastUpdatedEl) lastUpdatedEl.textContent = '—';
                     pending = false;
@@ -255,13 +269,28 @@
                 const buys = data.map(p => (p.buy === null ? null : Number(p.buy)));
                 const sells = data.map(p => (p.sell === null ? null : Number(p.sell)));
                 const last = data[data.length - 1];
+                const prev = data.length > 1 ? data[data.length - 2] : null;
 
-                if (currentBuyEl) currentBuyEl.textContent = last && last.buy ? formatNumber(last.buy) : '—';
-                if (currentSellEl) currentSellEl.textContent = last && last.sell ? formatNumber(last.sell) : '—';
+                if (currentBuyEl) {
+                    currentBuyEl.textContent = last && last.buy ? formatNumber(last.buy) : '—';
+                    if (currentBuyDiffEl) {
+                        currentBuyDiffEl.innerHTML = (last && last.buy && prev && prev.buy) ? formatDiffStr(last.buy - prev.buy) : '';
+                    }
+                }
+                if (currentSellEl) {
+                    currentSellEl.textContent = last && last.sell ? formatNumber(last.sell) : '—';
+                    if (currentSellDiffEl) {
+                        currentSellDiffEl.innerHTML = (last && last.sell && prev && prev.sell) ? formatDiffStr(last.sell - prev.sell) : '';
+                    }
+                }
                 if (currentWorldGoldEl) {
                     const lastWorld = worldData && worldData.length > 0 ? worldData[worldData.length - 1] : null;
+                    const prevWorld = worldData && worldData.length > 1 ? worldData[worldData.length - 2] : null;
                     if (lastWorld && lastWorld.buy) {
                         currentWorldGoldEl.textContent = formatNumber(lastWorld.buy);
+                        if (currentWorldGoldDiffEl) {
+                            currentWorldGoldDiffEl.innerHTML = (prevWorld && prevWorld.buy) ? formatDiffStr(lastWorld.buy - prevWorld.buy) : '';
+                        }
                         if (worldGoldDetailsEl) {
                             const USD_TO_VND = 26000;
                             const OZ_TO_CHI = 37.5 / 31.1034768 / 10;
