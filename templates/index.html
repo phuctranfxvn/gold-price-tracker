@@ -4,7 +4,8 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Giá vàng SJC & 999 — Dashboard</title>
+    <title>Giá vàng &amp; Xăng dầu — Dashboard</title>
+    <meta name="description" content="Theo dõi giá vàng SJC, vàng 999 và giá xăng dầu PVOil cập nhật tự động." />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -16,8 +17,8 @@
             <div class="brand">
                 <div class="logo">V</div>
                 <div>
-                    <h1>Giá vàng — Dashboard</h1>
-                    <p class="lead">Nguồn: Mi Hồng · Cập nhật tự động mỗi 30 phút</p>
+                    <h1>Giá vàng &amp; Xăng dầu — Dashboard</h1>
+                    <p class="lead">Nguồn: Mi Hồng · PVOil · Cập nhật tự động</p>
                 </div>
             </div>
 
@@ -60,6 +61,15 @@
                             <div id="currentSell" class="big price-value">—</div>
                             <div class="muted small-text">VND</div>
                         </div>
+                        <div class="price-block"
+                            style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 10px; padding-top: 15px;">
+                            <div class="muted" style="color: #34d399">🌍 Thế giới</div>
+                            <div id="currentWorldGold" class="big price-value" style="color: #34d399">—</div>
+                            <div class="muted small-text">VND/chỉ</div>
+                            <div id="worldGoldDetails" class="muted small-text" style="color: rgba(255,255,255,0.5); margin-top: 6px;">
+                                <!-- Điền bằng JS -->
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -80,10 +90,62 @@
             </aside>
         </main>
 
-        <footer class="card footer-card">Phát triển bởi Felix — Dữ liệu từ <a href="https://mihong.vn" target="_blank">Mi Hồng</a></footer>
+        <!-- ⛽ Oil price section -->
+        <section class="oil-section card" id="oilSection">
+            <div class="oil-header">
+                <div class="oil-title">
+                    <span class="oil-icon">⛽</span>
+                    <div>
+                        <h2>Giá xăng dầu</h2>
+                        <p class="lead">Nguồn: PVOil · <span id="oilLatestDate">—</span></p>
+                    </div>
+                </div>
+                <div class="oil-controls">
+                    <nav class="mode-controls" role="tablist" aria-label="Chế độ giá xăng">
+                        <button class="btn active" id="oilModeTableBtn">Bảng giá</button>
+                        <button class="btn" id="oilMode7Btn">7 ngày</button>
+                        <button class="btn" id="oilMode30Btn">1 tháng</button>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Table view (default) -->
+            <div id="oilTableView">
+                <div id="oilTableEmpty" class="chart-empty" style="display:none;">Chưa có dữ liệu lịch sử.</div>
+                <table class="oil-table" id="oilTable">
+                    <thead>
+                        <tr>
+                            <th>Mặt hàng</th>
+                            <th>Giá (VNĐ/lít)</th>
+                            <th>Chênh lệch</th>
+                        </tr>
+                    </thead>
+                    <tbody id="oilTableBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Chart view -->
+            <div id="oilChartView" style="display:none;">
+                <div id="oilChartEmpty" class="chart-empty" style="display:none;">Chưa có dữ liệu lịch sử.</div>
+                <canvas id="oilChart" aria-label="Biểu đồ giá xăng dầu" role="img"></canvas>
+            </div>
+        </section>
+
+        <footer class="card footer-card">
+            <div>Phát triển bởi Felix — Dữ liệu từ <a href="https://mihong.vn" target="_blank">Mi Hồng</a> &amp; <a
+                    href="https://pvoil.com.vn" target="_blank">PVOil</a></div>
+            <div class="disclaimer">⚠️ Dữ liệu là tham khảo, có thể không chính xác do lỗi API hoặc đối tác cập nhật sai
+                giá. Chúng tôi hoàn toàn không chịu trách nhiệm về vấn đề sai sót này. Xin cảm ơn!</div>
+        </footer>
     </div>
 
-    <script>window.API = { PRICES: '/api/prices', FETCH_HISTORY: '/api/fetch-history' };</script>
+    <script>window.API = {
+            PRICES: '/api/prices',
+            FETCH_HISTORY: '/api/fetch-history',
+            OIL_PRICES: '/api/oil-prices',
+            FETCH_OIL_HISTORY: '/api/fetch-oil-history',
+            FETCH_WORLD_GOLD: '/api/fetch-world-gold'
+        };</script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 

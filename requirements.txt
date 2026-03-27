@@ -3,3 +3,5 @@ requests
 apscheduler
 urllib3
 gunicorn
+beautifulsoup4
+yfinance

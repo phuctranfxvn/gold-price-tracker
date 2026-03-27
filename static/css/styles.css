@@ -235,6 +235,13 @@ p.lead {
     text-decoration: underline
 }
 
+.disclaimer {
+    margin-top: 8px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.4);
+    line-height: 1.5
+}
+
 /* utilities */
 .muted {
     color: var(--muted);
@@ -328,5 +335,140 @@ p.lead {
     .logo {
         width: 40px;
         height: 40px
+    }
+}
+
+/* ==================== Oil price section ==================== */
+.oil-section {
+    margin-top: 18px;
+    padding: 20px
+}
+
+.oil-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px
+}
+
+.oil-title {
+    display: flex;
+    align-items: center;
+    gap: 12px
+}
+
+.oil-icon {
+    font-size: 32px;
+    line-height: 1
+}
+
+.oil-title h2 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700
+}
+
+.oil-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2)
+}
+
+.btn-outline:hover {
+    background: rgba(255, 255, 255, 0.07)
+}
+
+.oil-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px
+}
+
+.oil-table th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    white-space: nowrap
+}
+
+.oil-table td {
+    padding: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    vertical-align: middle
+}
+
+.oil-table tbody tr:last-child td {
+    border-bottom: none
+}
+
+.oil-table tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.025)
+}
+
+.oil-price {
+    font-weight: 700;
+    font-size: 15px
+}
+
+.oil-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px
+}
+
+.oil-change.up {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.12)
+}
+
+.oil-change.down {
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.12)
+}
+
+.oil-change.neutral {
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.05)
+}
+
+#oilChart {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 300px !important;
+    display: block;
+    margin-top: 8px
+}
+
+@media (max-width: 900px) {
+    .oil-header {
+        flex-direction: column;
+        align-items: flex-start
+    }
+
+    .oil-controls {
+        width: 100%
+    }
+
+    #oilChart {
+        height: 240px !important
+    }
+
+    .oil-table th,
+    .oil-table td {
+        padding: 8px 6px
     }
 }

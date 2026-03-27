@@ -9,6 +9,8 @@
         const lastUpdatedEl = document.getElementById('last-updated');
         const currentBuyEl = document.getElementById('currentBuy');
         const currentSellEl = document.getElementById('currentSell');
+        const currentWorldGoldEl = document.getElementById('currentWorldGold');
+        const worldGoldDetailsEl = document.getElementById('worldGoldDetails');
         const currentTypeBadge = document.getElementById('currentTypeBadge');
         const typeBtns = document.querySelectorAll('.type-btn');
 
@@ -61,9 +63,10 @@
             }
         }
 
-        async function fetchPrices(limit = 30) {
+        async function fetchPrices(limit = 30, type = null) {
             const modeParam = currentMode;
-            const url = `${window.API.PRICES}?mode=${modeParam}&limit=${limit}&type=${currentType}`;
+            const goldType = type || currentType;
+            const url = `${window.API.PRICES}?mode=${modeParam}&limit=${limit}&type=${goldType}`;
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -118,39 +121,59 @@
             } catch (e) { console.warn('destroy chart error', e); chart = null; }
         }
 
-        function createChart(labels, buys, sells) {
+        function createChart(labels, buys, sells, worldData) {
             if (!CHART_CANVAS) return;
             const ctx = CHART_CANVAS.getContext('2d');
             if (!ctx) return;
 
             destroyChartIfExists();
             creatingChart = true;
+
+            const datasets = [{
+                label: 'Mua Vào',
+                data: buys,
+                fill: false,
+                tension: 0.25,
+                pointRadius: 4,
+                borderWidth: 3,
+                borderColor: '#60a5fa',
+                pointBackgroundColor: '#60a5fa',
+                backgroundColor: 'rgba(96,165,250,0.08)'
+            }, {
+                label: 'Bán Ra',
+                data: sells,
+                fill: false,
+                tension: 0.25,
+                pointRadius: 4,
+                borderWidth: 3,
+                borderColor: '#f59e0b',
+                pointBackgroundColor: '#f59e0b',
+                backgroundColor: 'rgba(245,158,11,0.08)'
+            }];
+
+            // World gold overlay — align to same labels using timestamps
+            if (worldData && worldData.length > 0) {
+                const worldMap = {};
+                worldData.forEach(p => { worldMap[tsToLabel(p.timestamp)] = p.buy; });
+                const worldLine = labels.map(l => worldMap[l] ?? null);
+                datasets.push({
+                    label: '🌍 Vàng Thế Giới (VNĐ/chỉ)',
+                    data: worldLine,
+                    fill: false,
+                    tension: 0.25,
+                    pointRadius: 3,
+                    borderWidth: 2,
+                    borderDash: [5, 3],
+                    borderColor: '#34d399',
+                    pointBackgroundColor: '#34d399',
+                    backgroundColor: 'rgba(52,211,153,0.06)',
+                    spanGaps: true
+                });
+            }
+
             chart = new Chart(ctx, {
                 type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Mua Vào',
-                        data: buys,
-                        fill: false,
-                        tension: 0.25,
-                        pointRadius: 4,
-                        borderWidth: 3,
-                        borderColor: '#60a5fa',
-                        pointBackgroundColor: '#60a5fa',
-                        backgroundColor: 'rgba(96,165,250,0.08)'
-                    }, {
-                        label: 'Bán Ra',
-                        data: sells,
-                        fill: false,
-                        tension: 0.25,
-                        pointRadius: 4,
-                        borderWidth: 3,
-                        borderColor: '#f59e0b',
-                        pointBackgroundColor: '#f59e0b',
-                        backgroundColor: 'rgba(245,158,11,0.08)'
-                    }]
-                },
+                data: { labels, datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: true,
@@ -209,12 +232,19 @@
                     limit = (currentMode === '30d') ? 30 : 7;
                 }
 
-                const data = await fetchPrices(limit);
+                // Fetch gold type + world gold in parallel
+                const [data, worldData] = await Promise.all([
+                    fetchPrices(limit),
+                    fetchPrices(limit, 'WORLD')
+                ]);
+
                 if (!data || data.length === 0) {
                     destroyChartIfExists();
                     showEmptyMessage(true);
                     if (currentBuyEl) currentBuyEl.textContent = '—';
                     if (currentSellEl) currentSellEl.textContent = '—';
+                    if (currentWorldGoldEl) currentWorldGoldEl.textContent = '—';
+                    if (worldGoldDetailsEl) worldGoldDetailsEl.innerHTML = '';
                     if (lastUpdatedEl) lastUpdatedEl.textContent = '—';
                     pending = false;
                     return;
@@ -228,19 +258,64 @@
 
                 if (currentBuyEl) currentBuyEl.textContent = last && last.buy ? formatNumber(last.buy) : '—';
                 if (currentSellEl) currentSellEl.textContent = last && last.sell ? formatNumber(last.sell) : '—';
+                if (currentWorldGoldEl) {
+                    const lastWorld = worldData && worldData.length > 0 ? worldData[worldData.length - 1] : null;
+                    if (lastWorld && lastWorld.buy) {
+                        currentWorldGoldEl.textContent = formatNumber(lastWorld.buy);
+                        if (worldGoldDetailsEl) {
+                            const USD_TO_VND = 26000;
+                            const OZ_TO_CHI = 37.5 / 31.1034768 / 10;
+                            const usdStr = (lastWorld.buy / (USD_TO_VND * OZ_TO_CHI)).toLocaleString(undefined, {minimumFractionDigits: 1, maximumFractionDigits: 1});
+                            
+                            let diffStr = '';
+                            if (last && last.sell) {
+                                const diff = last.sell - lastWorld.buy;
+                                const sign = diff > 0 ? '+' : '';
+                                diffStr = `<br>Chênh lệch giá bán: <span style="color:${diff > 0 ? '#f87171' : '#34d399'}">${sign}${formatNumber(diff)}</span>`;
+                            }
+                            worldGoldDetailsEl.innerHTML = `${usdStr} USD/oz${diffStr}`;
+                        }
+                    } else {
+                        currentWorldGoldEl.textContent = '—';
+                        if (worldGoldDetailsEl) worldGoldDetailsEl.innerHTML = '';
+                    }
+                }
                 if (lastUpdatedEl) lastUpdatedEl.textContent = last ? 'Cập nhật: ' + new Date(last.timestamp * 1000).toLocaleString() : '—';
 
-                if (!chart) createChart(labels, buys, sells);
-                else {
+                if (!chart) {
+                    createChart(labels, buys, sells, worldData);
+                } else {
                     try {
                         chart.data.labels = labels;
                         chart.data.datasets[0].data = buys;
                         chart.data.datasets[1].data = sells;
+                        // Update or add world gold dataset
+                        if (worldData && worldData.length > 0) {
+                            const worldMap = {};
+                            worldData.forEach(p => { worldMap[tsToLabel(p.timestamp)] = p.buy; });
+                            const worldLine = labels.map(l => worldMap[l] ?? null);
+                            if (chart.data.datasets[2]) {
+                                chart.data.datasets[2].data = worldLine;
+                            } else {
+                                chart.data.datasets.push({
+                                    label: '🌍 Vàng Thế Giới (VNĐ/chỉ)',
+                                    data: worldLine,
+                                    fill: false,
+                                    tension: 0.25,
+                                    pointRadius: 3,
+                                    borderWidth: 2,
+                                    borderDash: [5, 3],
+                                    borderColor: '#34d399',
+                                    pointBackgroundColor: '#34d399',
+                                    spanGaps: true
+                                });
+                            }
+                        }
                         chart.update();
                     } catch (e) {
                         console.warn('chart update failed, recreating', e);
                         destroyChartIfExists();
-                        createChart(labels, buys, sells);
+                        createChart(labels, buys, sells, worldData);
                     }
                 }
             } catch (err) {
@@ -263,5 +338,188 @@
         setActiveMode('7d');
         updateChart();
         setInterval(updateChart, 60_000);
+
+
+        // ================================================================
+        // ⛽ OIL PRICE MODULE
+        // ================================================================
+        const oilTableBody = document.getElementById('oilTableBody');
+        const oilLatestDate = document.getElementById('oilLatestDate');
+        const oilTableView = document.getElementById('oilTableView');
+        const oilChartView = document.getElementById('oilChartView');
+        const oilTableEmpty = document.getElementById('oilTableEmpty');
+        const oilChartEmpty = document.getElementById('oilChartEmpty');
+        const oilCanvas = document.getElementById('oilChart');
+        const oilModeTableBtn = document.getElementById('oilModeTableBtn');
+        const oilMode7Btn = document.getElementById('oilMode7Btn');
+        const oilMode30Btn = document.getElementById('oilMode30Btn');
+        const oilBackfillBtn = document.getElementById('oilBackfillBtn');
+
+        let oilChart = null;
+        let oilMode = 'table'; // 'table' | '7d' | '30d'
+        let oilData = null;   // last fetched response
+
+        function setOilMode(mode) {
+            oilMode = mode;
+            [oilModeTableBtn, oilMode7Btn, oilMode30Btn].forEach(b => b && b.classList.remove('active'));
+            if (mode === 'table') {
+                oilModeTableBtn && oilModeTableBtn.classList.add('active');
+                oilTableView && (oilTableView.style.display = '');
+                oilChartView && (oilChartView.style.display = 'none');
+            } else {
+                if (mode === '7d') oilMode7Btn && oilMode7Btn.classList.add('active');
+                else oilMode30Btn && oilMode30Btn.classList.add('active');
+                oilTableView && (oilTableView.style.display = 'none');
+                oilChartView && (oilChartView.style.display = '');
+            }
+        }
+
+        function changeClass(raw) {
+            if (!raw) return 'neutral';
+            // PVOil change field may be like "+500đ" or "-200đ" or "0"
+            const s = raw.trim();
+            if (s.startsWith('+') || (s !== '0' && !s.startsWith('-') && s !== '' && !s.startsWith('0'))) return 'up';
+            if (s.startsWith('-')) return 'down';
+            return 'neutral';
+        }
+
+        function changeIcon(cls) {
+            if (cls === 'up') return '▲';
+            if (cls === 'down') return '▼';
+            return '—';
+        }
+
+        function renderOilTable(items) {
+            if (!oilTableBody) return;
+            if (!items || items.length === 0) {
+                if (oilTableEmpty) oilTableEmpty.style.display = '';
+                const tbl = document.getElementById('oilTable');
+                if (tbl) tbl.style.display = 'none';
+                return;
+            }
+            if (oilTableEmpty) oilTableEmpty.style.display = 'none';
+            const tbl = document.getElementById('oilTable');
+            if (tbl) tbl.style.display = '';
+            oilTableBody.innerHTML = items.map(item => {
+                const cls = changeClass(item.change);
+                const icon = changeIcon(cls);
+                const priceStr = item.price ? Number(item.price).toLocaleString('vi-VN') : '—';
+                return `<tr>
+                    <td>${item.name}</td>
+                    <td class="oil-price">${priceStr}đ</td>
+                    <td><span class="oil-change ${cls}">${icon} ${item.change || '—'}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        // Pick a set of distinct colors for chart lines
+        const OIL_COLORS = [
+            '#60a5fa', '#f59e0b', '#34d399', '#f87171',
+            '#a78bfa', '#fb923c', '#38bdf8', '#e879f9'
+        ];
+
+        function renderOilChart(history) {
+            if (!oilCanvas) return;
+            if (!history || history.length === 0) {
+                if (oilChartEmpty) oilChartEmpty.style.display = '';
+                oilCanvas.style.display = 'none';
+                return;
+            }
+            if (oilChartEmpty) oilChartEmpty.style.display = 'none';
+            oilCanvas.style.display = '';
+
+            const labels = history.map(d => d.date);
+
+            // Collect unique product names from all days
+            const namesSet = new Set();
+            history.forEach(d => d.items.forEach(it => namesSet.add(it.name)));
+            const names = [...namesSet];
+
+            // Build index: date → {name → price}
+            const byDateName = {};
+            history.forEach(d => {
+                byDateName[d.date] = {};
+                d.items.forEach(it => { byDateName[d.date][it.name] = it.price; });
+            });
+
+            const datasets = names.map((name, i) => ({
+                label: name,
+                data: labels.map(d => byDateName[d][name] ?? null),
+                fill: false,
+                tension: 0.2,
+                pointRadius: 3,
+                borderWidth: 2,
+                borderColor: OIL_COLORS[i % OIL_COLORS.length],
+                pointBackgroundColor: OIL_COLORS[i % OIL_COLORS.length],
+                spanGaps: true
+            }));
+
+            if (oilChart) {
+                try {
+                    oilChart.data.labels = labels;
+                    oilChart.data.datasets = datasets;
+                    oilChart.update();
+                    return;
+                } catch (e) {
+                    oilChart.destroy();
+                    oilChart = null;
+                }
+            }
+
+            const ctx = oilCanvas.getContext('2d');
+            oilChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: true, labels: { color: '#E6EEF8', boxWidth: 12, font: { size: 12 } } },
+                        tooltip: {
+                            interaction: { mode: 'nearest', intersect: false },
+                            callbacks: {
+                                label: ctx => {
+                                    const v = ctx.raw;
+                                    if (v == null) return ctx.dataset.label + ': —';
+                                    return ctx.dataset.label + ': ' + Number(v).toLocaleString('vi-VN') + 'đ';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { color: '#CFE6FF', maxRotation: 45, minRotation: 45 }, grid: { color: 'rgba(255,255,255,0.03)' } },
+                        y: { ticks: { color: '#CFE6FF', callback: v => Number(v).toLocaleString('vi-VN') }, grid: { color: 'rgba(255,255,255,0.03)' } }
+                    }
+                }
+            });
+        }
+
+        async function fetchAndRenderOil() {
+            const apiMode = oilMode === 'table' ? '7d' : oilMode;
+            try {
+                const resp = await fetch(`${window.API.OIL_PRICES}?mode=${apiMode}`);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                oilData = await resp.json();
+            } catch (e) {
+                console.error('fetchOilPrices error', e);
+                return;
+            }
+            if (oilLatestDate && oilData.latest_date) {
+                oilLatestDate.textContent = oilData.latest_date;
+            }
+            if (oilMode === 'table') {
+                renderOilTable(oilData.latest || []);
+            } else {
+                renderOilChart(oilData.history || []);
+            }
+        }
+
+        if (oilModeTableBtn) oilModeTableBtn.addEventListener('click', () => { setOilMode('table'); fetchAndRenderOil(); });
+        if (oilMode7Btn) oilMode7Btn.addEventListener('click', () => { setOilMode('7d'); fetchAndRenderOil(); });
+        if (oilMode30Btn) oilMode30Btn.addEventListener('click', () => { setOilMode('30d'); fetchAndRenderOil(); });
+
+        // Initial oil load + auto-refresh every 30 min
+        fetchAndRenderOil();
+        setInterval(fetchAndRenderOil, 30 * 60 * 1000);
     });
 })();
